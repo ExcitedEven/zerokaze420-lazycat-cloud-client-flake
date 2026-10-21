@@ -52,6 +52,19 @@ nix shell github:zerokaze420/lazycat-cloud-client-flake --impure
 
 ## Usage
 
+### Catlink compatibility
+
+Remote WeChat downloads Catlink at runtime.  The NixOS module enables
+`nix-ld`, while the package supplies Catlink-specific `NIX_LD` and
+`NIX_LD_LIBRARY_PATH` values.  Downloaded Catlink ELF files remain untouched,
+so `/proc/self/exe` and the lookup of the adjacent `catlink-core` keep their
+upstream behavior.
+
+At startup, directories modified by older releases of this package are moved
+to `~/.local/share/catlink-stale/` so the client can download a pristine
+replacement.  `lzc-prepare-catlink` can also be run manually; the old
+`lzc-patch-catlink` name remains as a compatibility alias.
+
 ### NixOS Module
 
 System-level installation with capability management and optional AppArmor support.

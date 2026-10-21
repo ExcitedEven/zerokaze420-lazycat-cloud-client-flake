@@ -58,21 +58,19 @@ nix shell github:zerokaze420/lazycat-cloud-client-flake --impure
 解释器路径 `/lib64/ld-linux-x86-64.so.2`，在 NixOS 上直接运行会报
 `Could not start dynamically linked executable`。
 
-本包启动客户端时会自动修复 `~/.local/share/catlink/*/catlink` 和
-`~/.local/share/catlink/*/catlink-core`，只替换两个入口程序的
-interpreter 为 Nix 动态加载器，不改写 RPATH 或其它 ELF program headers；
-客户端会把 Catlink 自带库加入运行时库路径。这样 Catlink 仍能通过自身
-路径找到 `catlink-core`，同时兼容 NixOS。
+NixOS 模块会启用 `nix-ld`，本包则为客户端设置 Catlink 专用的
+`NIX_LD` 和 `NIX_LD_LIBRARY_PATH`。Catlink 下载的 ELF 文件保持原样，
+不会再通过 `patchelf` 改写，因此它仍能通过 `/proc/self/exe` 和自身路径
+定位 `catlink-core` 及配套动态库。
 也可以手动执行：
 
 ```bash
-lzc-patch-catlink
+lzc-prepare-catlink
 ```
 
-客户端运行期间会持续监测该目录，因此远程重新下载或替换 `catlink` 后会自动再次修复；
-客户端退出时监测进程也会自动退出。
-由旧版修复器直接改写过的 Catlink 目录会被自动隔离到
-`~/.local/share/catlink-stale/`，随后由客户端重新下载干净版本。
+启动时会检查旧版修复器留下的标记。被旧版修复器改写过的 Catlink 目录会
+被自动隔离到 `~/.local/share/catlink-stale/`，随后由客户端重新下载干净版本。
+兼容命令名 `lzc-patch-catlink` 仍然保留，但不会修改 ELF。
 
 ### NixOS 模块
 

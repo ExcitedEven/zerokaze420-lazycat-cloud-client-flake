@@ -177,22 +177,14 @@ done
 GETCAPEOF
     chmod +x $out/lib/lzc-client-desktop/fake/bin/getcap
 
-    cat > $out/bin/lzc-patch-catlink << 'PATCHCATLINKEOF'
+    cat > $out/bin/lzc-prepare-catlink << 'PREPARECATLINKEOF'
 #!/bin/sh
 set -u
 
 quiet=0
-watch=0
-watch_pid=""
-watch_seconds=""
-watch_interval="0.1"
 for arg in "$@"; do
   case "$arg" in
     --quiet) quiet=1 ;;
-    --watch) watch=1 ;;
-    --watch-pid=*) watch_pid="''${arg#*=}" ;;
-    --watch-seconds=*) watch_seconds="''${arg#*=}" ;;
-    --watch-interval=*) watch_interval="''${arg#*=}" ;;
   esac
 done
 
@@ -202,105 +194,25 @@ log() {
   fi
 }
 
-patch_one() {
+prepare_one() {
   bin="$1"
   [ -f "$bin" ] || return 0
-  [ -w "$bin" ] || return 0
 
   root="$(dirname "$bin")"
-  lib_root="$root/lib"
-  runtime_lib_root="$HOME/.local/share/catlink/lib"
   stamp="$root/.nix-patched-catlink"
-  target_interp="@glibc@/lib/ld-linux-x86-64.so.2"
-  real="$bin.nix-real"
-  marker="# lzc-patch-catlink wrapper"
 
-  tree_state() {
-    find "$root" \( -type f -perm -0100 -o -type f -name '*.so*' \) \
-      ! -name '*.nix-real' ! -name '*.nix-wrapper' -print \
-      | LC_ALL=C sort \
-      | while IFS= read -r elf; do
-          rel="''${elf#"$root"/}"
-          printf '%s\t' "$rel"
-          @coreutils@/bin/stat -c '%d:%i:%s:%Y:%y' "$elf" 2>/dev/null || true
-        done
-  }
-
-  expected_stamp() {
-    printf 'interpreter=%s\nruntime-library-root=%s\n' "$target_interp" "$runtime_lib_root"
-    tree_state
-  }
-
-  sync_runtime_libs() {
-    [ -d "$lib_root" ] || return 0
-    @coreutils@/bin/mkdir -p "$runtime_lib_root"
-    for bundled_lib in "$lib_root"/*.so*; do
-      [ -f "$bundled_lib" ] || continue
-      name="''${bundled_lib##*/}"
-      @coreutils@/bin/ln -sfn "$bundled_lib" "$runtime_lib_root/$name"
-    done
-  }
-
-  sync_runtime_libs
-
-  is_wrapper() {
-    [ -f "$1" ] || return 1
-    line1=""
-    line2=""
-    {
-      IFS= read -r line1
-      IFS= read -r line2
-    } < "$1" 2>/dev/null || true
-    [ "$line2" = "$marker" ]
-  }
-
-  # Versions patched by the old implementation may be unusable because
-  # patchelf rewrote their program headers.  Quarantine them so the CDE
-  # plugin can download a clean copy on the next attach.
-  if [ -f "$stamp" ] && ! is_wrapper "$bin"; then
-    legacy_second_line=""
-    {
-      IFS= read -r legacy_first_line
-      IFS= read -r legacy_second_line
-    } < "$stamp" 2>/dev/null || true
-    case "$legacy_second_line" in
-      rpath=*|entry-rpath=*)
-        stale_root="$HOME/.local/share/catlink-stale"
-        stale_dir="$stale_root/$(basename "$root").$$"
-        @coreutils@/bin/mkdir -p "$stale_root"
-        if @coreutils@/bin/mv "$root" "$stale_dir"; then
-          log "quarantined legacy-patched catlink: $root"
-        fi
-        return 0
-        ;;
-    esac
-  fi
-
-  # Migrate directories patched by the wrapper-based implementation back to
-  # the original ELF before patching its interpreter in place.  Catlink uses
-  # /proc/self/exe to locate catlink-core, so a loader wrapper makes that
-  # lookup point at the glibc store instead of the Catlink directory.
-  if is_wrapper "$bin" && [ -f "$real" ]; then
-    @coreutils@/bin/mv -f "$real" "$bin"
-  elif [ -f "$real" ]; then
-    @coreutils@/bin/rm -f "$real"
-  fi
-
-  interp="$(@patchelf@/bin/patchelf --print-interpreter "$bin" 2>/dev/null || true)"
-  [ -n "$interp" ] || return 0
-
-  if [ "$interp" = "$target_interp" ]; then
+  # Older releases of this package modified Catlink's ELF program headers.
+  # Those files cannot be restored reliably, so remove the whole version from
+  # the active tree and let the client download a pristine copy.  Fresh
+  # Catlink files are never modified; nix-ld handles their /lib64 interpreter.
+  if [ -f "$stamp" ]; then
+    stale_root="$HOME/.local/share/catlink-stale"
+    stale_dir="$stale_root/$(basename "$root").$$"
+    @coreutils@/bin/mkdir -p "$stale_root"
+    if @coreutils@/bin/mv "$root" "$stale_dir"; then
+      log "quarantined previously patched catlink: $root"
+    fi
     return 0
-  fi
-
-  # Only rewrite the interpreter on the two Catlink entrypoints.  Newer
-  # Catlink bootloaders can crash when patchelf changes other ELF headers.
-  if @patchelf@/bin/patchelf --set-interpreter "$target_interp" "$bin" \
-    && expected_stamp > "$stamp"; then
-    log "patched catlink: $bin"
-  else
-    log "failed to patch catlink: $bin"
-    return 1
   fi
 }
 
@@ -308,33 +220,17 @@ scan_once() {
   status=0
   for bin in "$HOME"/.local/share/catlink/*/catlink "$HOME"/.local/share/catlink/*/catlink-core; do
     [ -e "$bin" ] || continue
-    patch_one "$bin" || status=1
+    prepare_one "$bin" || status=1
   done
   return "$status"
 }
 
-if [ "$watch" -eq 1 ]; then
-  i=0
-  while :; do
-    if [ -n "$watch_pid" ] && ! kill -0 "$watch_pid" 2>/dev/null; then
-      exit 0
-    fi
-    scan_once || true
-    if [ -n "$watch_seconds" ] && [ "$i" -ge "$watch_seconds" ]; then
-      exit 0
-    fi
-    sleep "$watch_interval"
-    i=$((i + 1))
-  done
-else
-  scan_once
-fi
-PATCHCATLINKEOF
-    substituteInPlace $out/bin/lzc-patch-catlink \
-      --replace-fail "@patchelf@" "${patchelf}" \
-      --replace-fail "@coreutils@" "${coreutils}" \
-      --replace-fail "@glibc@" "${stdenv.cc.libc}"
-    chmod +x $out/bin/lzc-patch-catlink
+scan_once
+PREPARECATLINKEOF
+    substituteInPlace $out/bin/lzc-prepare-catlink \
+      --replace-fail "@coreutils@" "${coreutils}"
+    chmod +x $out/bin/lzc-prepare-catlink
+    ln -s lzc-prepare-catlink $out/bin/lzc-patch-catlink
 
     makeWrapper $out/lib/lzc-client-desktop/lzc-client-desktop $out/bin/lzc-client-desktop \
       --chdir "$out/lib/lzc-client-desktop" \
@@ -363,16 +259,16 @@ PATCHCATLINKEOF
       --set-default DBUS_SYSTEM_BUS_ADDRESS unix:path=/run/dbus/system_bus_socket \
       --set-default FONTCONFIG_FILE ${fontconfig.out}/etc/fonts/fonts.conf \
       --run 'if [ -z "''${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -n "''${XDG_RUNTIME_DIR:-}" ]; then export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"; fi' \
-      --run 'export LD_LIBRARY_PATH="$HOME/.local/share/catlink/lib:${lib.makeLibraryPath [
+      --set-default NIX_LD ${stdenv.cc.bintools.dynamicLinker} \
+      --run 'export NIX_LD_LIBRARY_PATH="${lib.makeLibraryPath [
         stdenv.cc.libc
         zlib
         wayland
         libxcb
         libxkbcommon
         libglvnd
-      ]}:''${LD_LIBRARY_PATH:-}"' \
-      --run "$out/bin/lzc-patch-catlink --quiet || true" \
-      --run "$out/bin/lzc-patch-catlink --quiet --watch --watch-pid=\$\$ --watch-interval=0.1 >/dev/null 2>&1 &"
+      ]}:''${NIX_LD_LIBRARY_PATH:-}"' \
+      --run "$out/bin/lzc-prepare-catlink --quiet || true"
 
     runHook postInstall
   '';

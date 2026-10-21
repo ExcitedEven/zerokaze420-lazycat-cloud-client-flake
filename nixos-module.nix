@@ -48,6 +48,21 @@ in
       userAllowOther = true;
     };
 
+    # Catlink is downloaded at runtime and uses the conventional
+    # /lib64/ld-linux-x86-64.so.2 interpreter.  nix-ld runs the pristine ELF
+    # without rewriting its program headers or changing /proc/self/exe.
+    programs.nix-ld = {
+      enable = true;
+      libraries = with pkgs; [
+        stdenv.cc.cc
+        zlib
+        wayland
+        libxcb
+        libxkbcommon
+        libglvnd
+      ];
+    };
+
     environment.systemPackages = [
       cfg.package
     ];
