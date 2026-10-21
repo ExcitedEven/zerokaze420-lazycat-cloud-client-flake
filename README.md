@@ -97,6 +97,7 @@ lzc-patch-catlink
           services.lazycat-cloud-client = {
             enable = true;
             enableAppArmor = true;      # 可选：宽松 AppArmor 策略
+            configureFileChooserPortal = true; # 默认：本地同步使用 GTK 目录选择框
             # package = pkgs.lazycat-cloud-client;  # 默认值，可覆写
           };
         })
@@ -113,6 +114,7 @@ lzc-patch-catlink
 | `services.lazycat-cloud-client.enable` | `bool` | `false` | 启用模块 |
 | `services.lazycat-cloud-client.package` | `package` | `pkgs.lazycat-cloud-client` | 覆写包 |
 | `services.lazycat-cloud-client.enableAppArmor` | `bool` | `false` | 宽松 AppArmor 策略 |
+| `services.lazycat-cloud-client.configureFileChooserPortal` | `bool` | `true` | 将文件选择接口固定到 GTK Portal，确保“本地同步”可弹出目录选择框 |
 
 模块会自动：
 - 安装客户端和 `zenity`（GUI 弹窗依赖）
@@ -120,6 +122,7 @@ lzc-patch-catlink
 - 安装桌面通知、XDG 和 Secret Service 运行时依赖，用于消息推送与凭据持久化
 - 通过 `security.wrappers` 授予 `lzc-core` 的 `CAP_NET_ADMIN` 权限
 - 安装网络管理的 polkit 策略
+- 默认将 XDG `FileChooser` 接口路由到 GTK Portal，避免通配 Portal 配置选中不可用的后端
 - （可选）添加宽松的 AppArmor 策略
 
 ### Home Manager 模块

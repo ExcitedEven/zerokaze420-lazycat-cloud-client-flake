@@ -1,4 +1,9 @@
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 let
   cfg = config.services.lazycat-cloud-client;
@@ -15,6 +20,16 @@ in
       description = ''
         Enable an unconfined AppArmor profile for the LazyCat Cloud client.
         This is required on systems with AppArmor in enforcing mode.
+      '';
+    };
+
+    configureFileChooserPortal = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Route XDG FileChooser portal requests to the GTK backend.  This keeps
+        the client's local-sync directory picker working when another portal
+        backend is selected by a broad default such as "*".
       '';
     };
   };
@@ -36,6 +51,12 @@ in
     environment.systemPackages = [
       cfg.package
     ];
+
+    xdg.portal = lib.mkIf cfg.configureFileChooserPortal {
+      enable = true;
+      extraPortals = [ pkgs.xdg-desktop-portal-gtk ];
+      config.common."org.freedesktop.impl.portal.FileChooser" = [ "gtk" ];
+    };
 
     security.wrappers.lzc-core = {
       source = "${cfg.package}/lib/lzc-client-desktop/core/.lzc-core-wrapped";
