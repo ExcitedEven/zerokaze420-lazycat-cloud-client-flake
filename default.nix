@@ -22,6 +22,7 @@
 , glib
 , gtk3
 , libGL
+, libgpg-error
 , libdrm
 , libglvnd
 , libnotify
@@ -92,6 +93,7 @@ stdenv.mkDerivation (finalAttrs: {
     glib
     gtk3
     libGL
+    libgpg-error
     libdrm
     libnotify
     libsecret
