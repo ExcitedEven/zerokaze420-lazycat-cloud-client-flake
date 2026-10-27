@@ -7,6 +7,7 @@
 , copyDesktopItems
 , coreutils
 , patchelf
+, util-linux
 , fuse3
 , zstd
 , zlib
@@ -178,6 +179,29 @@ for p in "$@"; do
 done
 GETCAPEOF
     chmod +x $out/lib/lzc-client-desktop/fake/bin/getcap
+
+    cat > $out/lib/lzc-client-desktop/fake/bin/zenity << 'ZENITYEOF'
+#!/bin/sh
+
+# lzc-core runs with CAP_NET_ADMIN through a NixOS security wrapper.  Its
+# ambient capability otherwise propagates into Zenity, which can leave the
+# file chooser alive without ever mapping a window under Wayland.
+#
+# Catlink may also add its bundled libraries to the core process environment;
+# do not expose those libraries to a host GTK application.
+unset LD_LIBRARY_PATH
+unset NIX_LD
+unset NIX_LD_LIBRARY_PATH
+
+exec @setpriv@ \
+  --inh-caps=-all \
+  --ambient-caps=-all \
+  -- @zenity@ "$@"
+ZENITYEOF
+    substituteInPlace $out/lib/lzc-client-desktop/fake/bin/zenity \
+      --replace-fail "@setpriv@" "${util-linux}/bin/setpriv" \
+      --replace-fail "@zenity@" "${zenity}/bin/zenity"
+    chmod +x $out/lib/lzc-client-desktop/fake/bin/zenity
 
     cat > $out/bin/lzc-prepare-catlink << 'PREPARECATLINKEOF'
 #!/bin/sh
